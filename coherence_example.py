@@ -31,11 +31,12 @@ class MockCompletions:
         await asyncio.sleep(0.01)
         user_content = messages[-1]["content"]
 
-        match = re.search(r"pergunta '(.*?)'", user_content)
-        if match:
-            question_key = match.group(1)
-        else:
-            question_key = user_content
+        # Find the first user message in the history to use as a stable key.
+        question_key = None
+        for message in messages:
+            if message.get('role') == 'user':
+                question_key = message.get('content')
+                break
 
         count = self._call_counts.get(question_key, 0) + 1
         self._call_counts[question_key] = count
@@ -84,21 +85,21 @@ async def ask_zai(question: str, client: MockZAIClient) -> str:
     messages = [DEFAULT_SYSTEM_PROMPT, {"role": "user", "content": question}]
 
     logging.info(f"--- Asking initial question: '{question}' ---")
-    resp = await client.chat.completions.create_async(model="zai-llama3.1-8b", messages=messages)
+    resp = await client.chat.completions.create_async(model="zai-llama3.1-8b", messages=messages.copy())
     answer = resp.choices[0].message["content"]
     logging.info(f"Initial response received: '{answer}'")
 
     if not is_coherent(answer):
         logging.warning("Incoherent response detected – re-prompting for a better answer.")
 
-        correction_prompt = (
-            f"Sua resposta anterior para a pergunta '{question}' foi: '{answer}'. "
-            "Esta resposta está incompleta ou contraditória. "
-            "Por favor, reformule mantendo coerência total."
-        )
-        correction_msg = [DEFAULT_SYSTEM_PROMPT, {"role": "user", "content": correction_prompt}]
+        # Append the assistant's bad answer and the user's correction to the message history
+        messages.append({"role": "assistant", "content": answer})
+        messages.append({
+            "role": "user",
+            "content": "Sua resposta anterior está incompleta ou contraditória. Por favor, reformule mantendo coerência total."
+        })
 
-        resp = await client.chat.completions.create_async(model="zai-llama3.1-8b", messages=correction_msg)
+        resp = await client.chat.completions.create_async(model="zai-llama3.1-8b", messages=messages.copy())
         answer = resp.choices[0].message["content"]
         logging.info(f"Corrected response received: '{answer}'")
     else:

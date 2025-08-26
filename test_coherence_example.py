@@ -27,16 +27,24 @@ async def test_ask_zai_handles_incoherent_response(mocker):
     # 2. Check that the final answer is the coherent one from the second call.
     assert "Claro, aqui está uma resposta coerente" in final_answer, "The final answer should be the coherent one."
 
-    # 3. Inspect the messages for each call to be sure the logic is correct.
+    # 3. Inspect the messages for each call to verify the conversation history.
     first_call_messages = spy_create_async.call_args_list[0].kwargs['messages']
     second_call_messages = spy_create_async.call_args_list[1].kwargs['messages']
 
-    # The first call should contain the original question.
-    assert first_call_messages[-1]['content'] == question, "The first call should be the original question."
+    # The first call should have 2 messages: system and user.
+    assert len(first_call_messages) == 2
+    assert first_call_messages[1]['role'] == 'user'
+    assert first_call_messages[1]['content'] == question
 
-    # The second call should contain the re-prompt instruction.
-    assert "reformule" in second_call_messages[-1]['content'], "The second call should contain the re-prompt instruction."
-    assert question in second_call_messages[-1]['content'], "The second call should contain the original question for context."
+    # The second call should have 4 messages, preserving the full history.
+    assert len(second_call_messages) == 4, "The second call should contain the full conversation history."
+    assert second_call_messages[0]['role'] == 'system'
+    assert second_call_messages[1]['role'] == 'user'
+    assert second_call_messages[1]['content'] == question, "History should contain original question."
+    assert second_call_messages[2]['role'] == 'assistant', "History should contain the bad answer."
+    assert "não sei..." in second_call_messages[2]['content']
+    assert second_call_messages[3]['role'] == 'user', "History should end with the re-prompt."
+    assert "reformule" in second_call_messages[3]['content']
 
 
 async def test_ask_zai_skips_repompt_for_coherent_response(mocker):
