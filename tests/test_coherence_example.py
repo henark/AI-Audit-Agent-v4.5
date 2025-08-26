@@ -1,4 +1,11 @@
+import sys
+import os
 import pytest
+
+# Add the project's 'src' directory to the Python path
+# This allows us to import 'coherence_example' from the tests directory
+sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..', 'src')))
+
 import coherence_example
 
 # Mark the whole module as async, which is a convention for pytest-asyncio

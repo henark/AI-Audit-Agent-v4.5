@@ -1,0 +1,20 @@
+rules:
+  - name: "Move test files to tests/ directory"
+    locations: "."
+    targets: files
+    filters:
+      - name:
+          startswith: "test_"
+      - extension: py
+    actions:
+      - move: "tests/"
+
+  - name: "Move python source files to src/ directory"
+    locations: "."
+    targets: files
+    filters:
+      - extension: py
+      - not name:
+          startswith: "test_"
+    actions:
+      - move: "src/"
