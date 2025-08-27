@@ -22,10 +22,10 @@ class MockCompletionResponse:
     model: str = "mock-zai-model"
 
 class MockCompletions:
-    def __init__(self, start_incoherent: bool = True):
+    def __init__(self, incoherent_attempts: int = 1):
         self._call_counts = {}
-        self.start_incoherent = start_incoherent
-        logging.info(f"MockCompletions configured with start_incoherent={self.start_incoherent}")
+        self.incoherent_attempts = incoherent_attempts
+        logging.info(f"MockCompletions configured with incoherent_attempts={self.incoherent_attempts}")
 
     async def create_async(self, messages: List[Dict[str, str]], **kwargs: Any) -> MockCompletionResponse:
         await asyncio.sleep(0.01)
@@ -43,23 +43,26 @@ class MockCompletions:
 
         logging.info(f"MockCompletions: Received call #{count} for question: '{question_key}'")
 
-        if "reformule" in user_content.lower():
-            response_content = f"Claro, aqui está uma resposta coerente e completa para a sua pergunta: '{question_key}'"
-        elif self.start_incoherent and count == 1:
+        if count <= self.incoherent_attempts:
             response_content = "Aprendizado supervisionado é... hmm... e o outro é... não sei..."
         else:
-            response_content = f"Esta é uma resposta coerente para '{question_key}'."
+            # Once we are past the incoherent attempts, the response depends on the prompt.
+            if "reformule" in user_content.lower():
+                response_content = f"Claro, aqui está uma resposta coerente e completa para a sua pergunta: '{question_key}'"
+            else:
+                # This would be the first, and coherent, response.
+                response_content = f"Esta é uma resposta coerente para '{question_key}'."
 
         return MockCompletionResponse(choices=[MockChoice(message={"content": response_content})])
 
 class MockChat:
-    def __init__(self, start_incoherent: bool = True):
-        self.completions = MockCompletions(start_incoherent=start_incoherent)
+    def __init__(self, incoherent_attempts: int = 1):
+        self.completions = MockCompletions(incoherent_attempts=incoherent_attempts)
 
 class MockZAIClient:
-    def __init__(self, api_key: str, start_incoherent: bool = True, **kwargs: Any):
-        logging.info(f"MockZAIClient initialized with api_key='{api_key[:4]}...', start_incoherent={start_incoherent}")
-        self.chat = MockChat(start_incoherent=start_incoherent)
+    def __init__(self, api_key: str, incoherent_attempts: int = 1, **kwargs: Any):
+        logging.info(f"MockZAIClient initialized with api_key='{api_key[:4]}...', incoherent_attempts={incoherent_attempts}")
+        self.chat = MockChat(incoherent_attempts=incoherent_attempts)
 
 class ZAIError(Exception): pass
 class RateLimitError(ZAIError): pass
@@ -81,34 +84,40 @@ def is_coherent(text: str) -> bool:
         return False
     return True
 
-async def ask_zai(question: str, client: MockZAIClient) -> str:
-    # An empty or whitespace-only question should not be sent to the API.
+async def ask_zai(question: str, client: MockZAIClient, max_retries: int = 2) -> str:
     if not question or not question.strip():
         logging.warning("Question is empty or contains only whitespace.")
         return ""
 
     messages = [DEFAULT_SYSTEM_PROMPT, {"role": "user", "content": question}]
 
-    logging.info(f"--- Asking initial question: '{question}' ---")
-    resp = await client.chat.completions.create_async(model="zai-llama3.1-8b", messages=messages.copy())
-    answer = resp.choices[0].message["content"]
-    logging.info(f"Initial response received: '{answer}'")
+    answer = ""
+    is_final_answer_coherent = False
 
-    if not is_coherent(answer):
-        logging.warning("Incoherent response detected – re-prompting for a better answer.")
+    for attempt in range(max_retries + 1):
+        logging.info(f"--- Asking question (Attempt #{attempt + 1}): '{question}' ---")
 
-        # Append the assistant's bad answer and the user's correction to the message history
-        messages.append({"role": "assistant", "content": answer})
-        messages.append({
-            "role": "user",
-            "content": "Sua resposta anterior está incompleta ou contraditória. Por favor, reformule mantendo coerência total."
-        })
-
-        resp = await client.chat.completions.create_async(model="zai-llama3.1-8b", messages=messages.copy())
+        resp = await client.chat.completions.create_async(
+            model="zai-llama3.1-8b", messages=messages.copy()
+        )
         answer = resp.choices[0].message["content"]
-        logging.info(f"Corrected response received: '{answer}'")
-    else:
-        logging.info("Initial response was coherent.")
+        logging.info(f"Response received (Attempt #{attempt + 1}): '{answer}'")
+
+        if is_coherent(answer):
+            logging.info("Coherent response received.")
+            is_final_answer_coherent = True
+            break
+        else:
+            logging.warning(f"Incoherent response detected on attempt #{attempt + 1}.")
+            # Append the assistant's bad answer and the user's correction to the message history
+            messages.append({"role": "assistant", "content": answer})
+            messages.append({
+                "role": "user",
+                "content": "Sua resposta anterior está incompleta ou contraditória. Por favor, reformule mantendo coerência total."
+            })
+
+    if not is_final_answer_coherent:
+        logging.error(f"Failed to get a coherent answer after {max_retries + 1} attempts.")
 
     return answer.strip()
 
@@ -117,12 +126,10 @@ async def ask_zai(question: str, client: MockZAIClient) -> str:
 # =================================================
 async def main():
     logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
-    # The demonstration will use the default behavior (incoherent first)
-    client = MockZAIClient(api_key="DUMMY_API_KEY")
+    # The demonstration will use the default behavior (1 incoherent response)
+    client = MockZAIClient(api_key="DUMMY_API_KEY", incoherent_attempts=1)
     question = "Explique a diferença entre aprendizado supervisionado e não supervisionado."
     final_answer = await ask_zai(question, client)
-
-    await asyncio.sleep(0.05)
 
     print("\n=========================")
     print("=== Resposta Coerente ===")
@@ -130,4 +137,8 @@ async def main():
     print(final_answer)
 
 if __name__ == "__main__":
-    asyncio.run(main())
+    try:
+        asyncio.run(main())
+    finally:
+        # Ensure all log handlers are flushed before the script exits.
+        logging.shutdown()

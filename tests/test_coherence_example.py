@@ -20,12 +20,13 @@ async def test_ask_zai_handles_incoherent_response(mocker):
     # Spy on the method that simulates the external API call to track its usage.
     spy_create_async = mocker.spy(coherence_example.MockCompletions, 'create_async')
 
-    # The client is configured to be incoherent on the first call by default.
-    client = coherence_example.MockZAIClient(api_key="test_key_incoherent")
+    # The client is configured to be incoherent on the first call.
+    client = coherence_example.MockZAIClient(api_key="test_key_incoherent", incoherent_attempts=1)
     question = "Explique a diferença entre aprendizado supervisionado e não supervisionado."
 
     # ACT
-    final_answer = await coherence_example.ask_zai(question, client)
+    # With max_retries=1, it will try the initial call and then retry once.
+    final_answer = await coherence_example.ask_zai(question, client, max_retries=1)
 
     # ASSERT
     # 1. Check that the API was called twice (initial prompt + re-prompt).
@@ -80,7 +81,7 @@ async def test_ask_zai_skips_repompt_for_coherent_response(mocker):
     spy_create_async = mocker.spy(coherence_example.MockCompletions, 'create_async')
 
     # Configure the client to be coherent from the start.
-    client = coherence_example.MockZAIClient(api_key="test_key_coherent", start_incoherent=False)
+    client = coherence_example.MockZAIClient(api_key="test_key_coherent", incoherent_attempts=0)
     question = "Explique a diferença entre aprendizado supervisionado e não supervisionado."
 
     # ACT
@@ -93,3 +94,39 @@ async def test_ask_zai_skips_repompt_for_coherent_response(mocker):
     # 2. Check that the final answer is the coherent one from the first call.
     assert "Esta é uma resposta coerente" in final_answer
     assert question in final_answer
+
+
+async def test_ask_zai_handles_multiple_incoherent_responses(mocker):
+    """
+    Given a client that provides multiple incoherent responses,
+    ask_zai should retry until it receives a coherent one.
+    """
+    # ARRANGE
+    spy_create_async = mocker.spy(coherence_example.MockCompletions, 'create_async')
+
+    # Configure the client to be incoherent for the first two attempts.
+    client = coherence_example.MockZAIClient(api_key="test_key_multi_incoherent", incoherent_attempts=2)
+    question = "What is the meaning of life?"
+
+    # ACT
+    # With max_retries=2, it will try the initial call and up to two retries.
+    final_answer = await coherence_example.ask_zai(question, client, max_retries=2)
+
+    # ASSERT
+    # 1. Check that the API was called three times (initial + 2 retries).
+    assert spy_create_async.call_count == 3, "Expected three calls to the API for two retries."
+
+    # 2. Check that the final answer is the coherent one from the third call.
+    assert "Claro, aqui está uma resposta coerente" in final_answer, "The final answer should be the coherent one from the third call."
+
+    # 3. Inspect the messages for the third call to verify the full history.
+    third_call_messages = spy_create_async.call_args_list[2].kwargs['messages']
+    assert len(third_call_messages) == 6, "The third call should have 6 messages."
+    assert third_call_messages[0]['role'] == 'system'
+    assert third_call_messages[1]['role'] == 'user'
+    assert third_call_messages[1]['content'] == question
+    assert third_call_messages[2]['role'] == 'assistant' # First bad answer
+    assert third_call_messages[3]['role'] == 'user'      # First re-prompt
+    assert third_call_messages[4]['role'] == 'assistant' # Second bad answer
+    assert third_call_messages[5]['role'] == 'user'      # Second re-prompt
+    assert "reformule" in third_call_messages[5]['content']
