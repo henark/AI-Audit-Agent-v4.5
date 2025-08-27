@@ -54,6 +54,23 @@ async def test_ask_zai_handles_incoherent_response(mocker):
     assert "reformule" in second_call_messages[3]['content']
 
 
+async def test_ask_zai_handles_empty_question():
+    """
+    Given an empty or whitespace-only question,
+    ask_zai should return an empty string without calling the API.
+    """
+    # ARRANGE
+    client = coherence_example.MockZAIClient(api_key="test_key_empty")
+
+    # ACT & ASSERT for empty string
+    final_answer_empty = await coherence_example.ask_zai("", client)
+    assert final_answer_empty == "", "Expected an empty string for an empty question."
+
+    # ACT & ASSERT for whitespace-only string
+    final_answer_whitespace = await coherence_example.ask_zai("   ", client)
+    assert final_answer_whitespace == "", "Expected an empty string for a whitespace-only question."
+
+
 async def test_ask_zai_skips_repompt_for_coherent_response(mocker):
     """
     Given a coherent first response from the client,

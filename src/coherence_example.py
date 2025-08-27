@@ -82,6 +82,11 @@ def is_coherent(text: str) -> bool:
     return True
 
 async def ask_zai(question: str, client: MockZAIClient) -> str:
+    # An empty or whitespace-only question should not be sent to the API.
+    if not question or not question.strip():
+        logging.warning("Question is empty or contains only whitespace.")
+        return ""
+
     messages = [DEFAULT_SYSTEM_PROMPT, {"role": "user", "content": question}]
 
     logging.info(f"--- Asking initial question: '{question}' ---")
