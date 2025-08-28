@@ -1,4 +1,6 @@
 services:
+  nats:
+    image: nats:latest
   agent:
     build: ./agents/vibe-coder
     volumes: [ ".:/repo" ]
