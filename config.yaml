@@ -18,3 +18,9 @@ rules:
           startswith: "test_"
     actions:
       - move: "src/"
+
+prompts:
+  system_prompt: "Você é um assistente de IA que prioriza a coerência lógica."
+  reprompt: "Sua resposta anterior está incompleta ou contraditória. Por favor, reformule mantendo coerência total."
+  critique_prompt: "A resposta anterior foi considerada insatisfatória. Critique-a, identificando as principais falhas de lógica ou coerência."
+  improve_prompt: "Com base na sua crítica, forneça uma nova resposta que seja completa, coerente e correta."
